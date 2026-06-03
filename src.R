@@ -34,6 +34,7 @@ setClass(
     wrap="logical", 
     rotate="integer",
     .color="character",
+    .cellcolor="character",
     .key="character"
   ),
   
@@ -50,6 +51,7 @@ setClass(
     wrap=NA, 
     rotate=NA_integer_,
     .color=NA_character_,
+    .cellcolor=NA_character_,
     .key=NA_character_
   ),
   
@@ -122,6 +124,12 @@ ODS_createStyle <- function(font=NULL, size=NULL, color=NULL, bold=NULL, italic=
     .color=sprintf("#%02X%02X%02X", rgb[1], rgb[2], rgb[3])
   }
   
+  if (is.na(cellcolor)){
+    .cellcolor=NA_character_
+  } else {
+    rgb <- col2rgb(cellcolor)
+    .cellcolor=sprintf("#%02X%02X%02X", rgb[1], rgb[2], rgb[3])
+  }
   
   
   
@@ -138,6 +146,7 @@ ODS_createStyle <- function(font=NULL, size=NULL, color=NULL, bold=NULL, italic=
       wrap=wrap, 
       rotate=rotate,
       .color=.color,
+      .cellcolor=.cellcolor,
       .key=.key)
 }
 
@@ -317,7 +326,7 @@ ODS_write <- function(sheet, file="defaultName.ods"){
              rowHeight="15pt",
              font="Calibri",
              size=11,
-             color="#000000",
+             color="black",
              bold=FALSE,
              italic=FALSE,
              underline=FALSE,
@@ -325,7 +334,9 @@ ODS_write <- function(sheet, file="defaultName.ods"){
              vAlign="bottom",
              hAlign="left",
              wrap=FALSE,
-             rotate=0)
+             rotate=0,
+             .color="#000000",
+             .cellcolor="transparent")
   
   # 0.1 NA style slots  ####
   
@@ -803,7 +814,7 @@ ODS_write <- function(sheet, file="defaultName.ods"){
       node <-xml_add_child(xxx, "style:table-cell-properties",
                            `style:vertical-align` = AA_stylesTable[i,"vAlign"])
       
-      if (AA_stylesTable[i,"cellcolor"]!="transparent"){xml_set_attr(node, "fo:background-color",AA_stylesTable[i,"cellcolor"])}
+      if (AA_stylesTable[i,".cellcolor"]!="transparent"){xml_set_attr(node, "fo:background-color",AA_stylesTable[i,".cellcolor"])}
       if (AA_stylesTable[i,"wrap"]     =="TRUE"       ){xml_set_attr(node, "fo:wrap-option","wrap")}
       if (AA_stylesTable[i,"rotate"]   !="0"          ){xml_set_attr(node, "style:rotation-angle",AA_stylesTable[i,"rotate"])}
       
@@ -894,6 +905,4 @@ ODS_write <- function(sheet, file="defaultName.ods"){
 ## Bugs ####
 #~~~~~~~~~~~
 
-
-# cellcolor currently does not work?? 
 # rotate does not rotate more than 90 degrees
