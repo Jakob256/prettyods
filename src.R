@@ -2,13 +2,15 @@
 ## 1. Imports ####
 #~~~~~~~~~~~~~~~~~
 
-if (!require(R6  )){install.packages("R6")}
-if (!require(zip )){install.packages("zip")}
-if (!require(xml2)){install.packages("xml2")}
+if (!require(R6        )){install.packages("R6")}
+if (!require(zip       )){install.packages("zip")}
+if (!require(xml2      )){install.packages("xml2")}
+if (!require(data.table)){install.packages("data.table")}
 
 library(R6)
 library(zip)
 library(xml2)
+library(data.table)
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -159,9 +161,11 @@ ODS_createStyle <- function(font=NULL, size=NULL, color=NULL, bold=NULL, italic=
 SHEET <- R6Class("ODSsheet",
                  public = list(
                    sheetName=NA,
-                   cellsContent = matrix(
-                     nrow = 0, ncol = 4,
-                     dimnames = list(NULL, c("row", "column", "text", "styleNumber"))
+                   cellsContent = data.table(
+                     row = integer(),
+                     column = integer(),
+                     text = character(),
+                     styleNumber = integer()
                    ),
                    mergedCells = matrix(
                      nrow = 0, ncol = 4,
@@ -176,11 +180,10 @@ SHEET <- R6Class("ODSsheet",
                    cleanup = function(){
                      ## fixes cells, that were accessed repeatedly (hence overwritten)
                      ## we could also fix styles that aren't used, but this seems tricky
-                     
                      if (nrow(self$cellsContent)<=1){return()}
-                     cell_id <- paste(self$cellsContent[, "row"], self$cellsContent[, "column"], sep = ",")
+                     cell_id <- self$cellsContent[, paste(row, column)]
                      keep <- !duplicated(cell_id, fromLast = TRUE)
-                     self$cellsContent <- self$cellsContent[keep, ,drop=FALSE]
+                     self$cellsContent <- self$cellsContent[keep,]
                      #invisible(self)
                    },
                    
@@ -218,7 +221,7 @@ ODS_createSheet = function(sheetName=NULL){
   return(SHEET)
 }
 
-
+## TODO: implement ncol(sheet) and nrow(sheet)
 
 #~~~~~~~~~~~~~~~~~~~
 ## 3. Functions ####
@@ -238,14 +241,7 @@ ODS_writeCell <- function(sheet, text, row, col,  style){
     styleNumber=length(sheet$styles)
   }
   
-  newRow <- c(
-    row = row,
-    column = col,
-    text = text,
-    styleNumber = styleNumber
-  )
-  
-  sheet$cellsContent <- rbind(sheet$cellsContent, newRow,deparse.level = 0)
+  sheet$cellsContent <- rbind(sheet$cellsContent, list(row,col,text,styleNumber))
   
   invisible(sheet)
 }
@@ -320,8 +316,8 @@ ODS_setRowHeights <- function(sheet,rows,height){
 
 
 ODS_write <- function(sheet, file="defaultName.ods"){
-  d=FALSE ## d = debug 
   if (!"ODSsheet" %in% class(sheet)){stop("'sheet' must be an ODSsheet")}
+  sheet$cleanup()
   DEFAULTS=c(colWidth="1.7cm",
              rowHeight="15pt",
              font="Calibri",
@@ -358,17 +354,8 @@ ODS_write <- function(sheet, file="defaultName.ods"){
   
   
   # 0.2 cells information ####
-  AA_cellsInfo=sheet$cellsContent[,c("text","styleNumber"),drop=FALSE]
-  AA_cellsInfo=cbind(AA_cellsInfo,styleName=paste0(rep("style",nrow(AA_cellsInfo)),AA_cellsInfo[,"styleNumber"]))
-  AA_cellsAddress=sheet$cellsContent[,c("row","column"),drop=FALSE]
-  AA_cellsAddress <- matrix(
-    as.double(AA_cellsAddress),
-    nrow = nrow(AA_cellsAddress),
-    ncol = ncol(AA_cellsAddress),
-    dimnames = dimnames(AA_cellsAddress)
-  )
-  
-  
+  AA_cellsContent=copy(sheet$cellsContent)
+  AA_cellsContent[,styleName:=paste0("style",styleNumber)]
   
   # 0.3 col/row styles ####
   
@@ -411,6 +398,12 @@ ODS_write <- function(sheet, file="defaultName.ods"){
     }
   }
   
+  
+  if (FALSE){## debug
+    AA_cellsContent<<-AA_cellsContent
+    AA_mergedCells<<-AA_mergedCells
+    AA_specialCell<<-AA_specialCell
+  }
   
   
   # 1.1 mimetype  ####
@@ -534,13 +527,13 @@ ODS_write <- function(sheet, file="defaultName.ods"){
     xml_add_child(
       default_style,
       "style:text-properties",
-      `fo:color` = "#000000",
-      `style:font-name` = "Calibri",
-      `style:font-name-asian` = "Calibri",
-      `style:font-name-complex` = "Calibri",
-      `fo:font-size` = "12pt",
-      `style:font-size-asian` = "12pt",
-      `style:font-size-complex` = "12pt"
+      `fo:color`               =DEFAULTS[".color"],
+      `style:font-name`        =DEFAULTS["font"],
+      `style:font-name-asian`  =DEFAULTS["font"],
+      `style:font-name-complex`=DEFAULTS["font"],
+      `fo:font-size`           =paste0(DEFAULTS["size"],"pt"),
+      `style:font-size-asian`  =paste0(DEFAULTS["size"],"pt"),
+      `style:font-size-complex`=paste0(DEFAULTS["size"],"pt")
     )
     
     # automatic-styles
@@ -684,123 +677,7 @@ ODS_write <- function(sheet, file="defaultName.ods"){
     }
     
     
-    
-    # ta1 (table) + its properties
-    ta1 <- xml_add_child(as, "style:style",
-                         `style:name` = "ta1",
-                         `style:family` = "table",
-                         `style:master-page-name` = "mp1"
-    )
-    xml_add_child(ta1, "style:table-properties",
-                  `table:display` = "true",
-                  `style:writing-mode` = "lr-tb"
-    )
-    
-    
-    body <- xml_add_child(doc, "office:body")
-    ss <- xml_add_child(body, "office:spreadsheet")
-    
-    # calculation-settings
-    xml_add_child(ss, "table:calculation-settings",
-                  `table:case-sensitive` = "false",
-                  `table:search-criteria-must-apply-to-whole-cell` = "true",
-                  `table:use-wildcards` = "true",
-                  `table:use-regular-expressions` = "false",
-                  `table:automatic-find-labels` = "false"
-    )
-    
-    # <table:table table:name="Tabelle1" table:style-name="ta1">
-    tbl <- xml_add_child(ss, "table:table",
-                         `table:name` = ifelse(is.na(sheet$sheetName),"Tabellle1",sheet$sheetName),
-                         `table:style-name` = "ta1"
-    )
-    
-    # Define all columns (very inefficient for now)
-    for (col in seq_along(AA_colStyle)){
-      xml_add_child(tbl, "table:table-column",
-                    `table:style-name` = AA_colStyle[col],
-                    `table:default-cell-style-name` = "ce1")
-    }
-    xml_add_child(tbl, "table:table-column",
-                  `table:style-name` = "co1",
-                  `table:number-columns-repeated` = 2^14-length(AA_colStyle),
-                  `table:default-cell-style-name` = "ce1")
-    
-    
-    # Here we fill every cell:
-    maxROW=max(AA_cellsAddress[,"row"],
-               AA_specialCell[,"row"])
-    for (rowNr in 1:maxROW){ ## TODO: This is currently the only place, where I use "1:..."
-      row <- xml_add_child(tbl, "table:table-row",`table:style-name` = AA_rowStyle[rowNr])
-      
-      # 20.05.2026
-      #if (!any(AA_cellsAddress[,"row"]==rowNr)){
-      #  ## warning("This skips lines, with empty combined cells. i dont know if this is intended") -> Actually, this is not intended!
-      #  xml_add_child(row, "table:table-cell",`table:number-columns-repeated` = "16384",`table:style-name` = "ce1") ## sooo empty rows need a style for some reason???
-      #  next
-      #}
-      
-      maxCOL=max((AA_cellsAddress[,"row"]==rowNr)*AA_cellsAddress[,"column"],
-                 (AA_specialCell [,"row"]==rowNr)*AA_specialCell [,"column"],
-                 (AA_mergedCells [,"fromRow"]==rowNr)*AA_mergedCells [,"fromColumn"])
-      for (colNr in 1:maxCOL){
-        id=which((AA_specialCell[,"row"]==rowNr)&(AA_specialCell[,"column"]==colNr))
-        if (length(id)!=0){
-          type=AA_specialCell[id,"type"]
-          if (type==1){ ## empty cell:
-            xml_add_child(row, "table:covered-table-cell",
-                          `table:number-columns-repeated` = "1")
-          }
-          next
-        }
-        
-        
-        id=which((AA_cellsAddress[,"row"]==rowNr)&(AA_cellsAddress[,"column"]==colNr))
-        if (length(id)==0){ ## add empty cell
-          cell <- xml_add_child(row, "table:table-cell",
-                                 `table:style-name` = "ce1")
-          ## However, is this the start of merged cells?
-          id2=which((AA_mergedCells[,"fromRow"]==rowNr)&(AA_mergedCells[,"fromColumn"]==colNr))
-          
-          if (length(id2)!=0){
-            xml_set_attr(cell, "table:number-columns-spanned",AA_mergedCells[id2,"width"])
-            xml_set_attr(cell, "table:number-rows-spanned",AA_mergedCells[id2,"height"])
-          }
-          
-        } else {
-          cell <- xml_add_child(row, "table:table-cell",
-                                 `office:value-type` = "string",
-                                 `table:style-name` = AA_cellsInfo[id,"styleName"])
-          id2=which((AA_mergedCells[,"fromRow"]==rowNr)&(AA_mergedCells[,"fromColumn"]==colNr))
-          if (length(id2)!=0){
-            xml_set_attr(cell, "table:number-columns-spanned",AA_mergedCells[id2,"width"])
-            xml_set_attr(cell, "table:number-rows-spanned",AA_mergedCells[id2,"height"])
-          }
-          
-          p <- xml_add_child(cell, "text:p")
-          xml_set_text(p, AA_cellsInfo[id,"text"])
-        }
-      }
-      
-      # finish the row:
-      xml_add_child(row, "table:table-cell",`table:number-columns-repeated` = 16384-maxCOL)
-      
-    }
-    
-    
-    # Remaining rows as empty (repeat 1,048,575)
-    row2 <- xml_add_child(tbl, "table:table-row",
-                          `table:number-rows-repeated` = 2^20-maxROW, ## 2^20-3
-                          `table:style-name` = "ro1"
-    )
-    xml_add_child(row2, "table:table-cell",
-                  `table:number-columns-repeated` = "16384"
-    )
-    
-    
-    ## HERE THE MAIN MODIFICATIONS:
-    ## adding of automatic styles:
-    ## so they will appear in quite a different position in the xml
+    ## MAIN MODIFICATION: ADDING STYLES
     for (i in seq_len(nrow(AA_stylesTable))){
       xxx<- xml_add_child(as, "style:style",
                           `style:name` = AA_stylesTable[i,"styleName"],
@@ -861,6 +738,124 @@ ODS_write <- function(sheet, file="defaultName.ods"){
     
     
     
+    # ta1 (table) + its properties
+    ta1 <- xml_add_child(as, "style:style",
+                         `style:name` = "ta1",
+                         `style:family` = "table",
+                         `style:master-page-name` = "mp1"
+    )
+    xml_add_child(ta1, "style:table-properties",
+                  `table:display` = "true",
+                  `style:writing-mode` = "lr-tb"
+    )
+    
+    
+    body <- xml_add_child(doc, "office:body")
+    ss <- xml_add_child(body, "office:spreadsheet")
+    
+    # calculation-settings
+    xml_add_child(ss, "table:calculation-settings",
+                  `table:case-sensitive` = "false",
+                  `table:search-criteria-must-apply-to-whole-cell` = "true",
+                  `table:use-wildcards` = "true",
+                  `table:use-regular-expressions` = "false",
+                  `table:automatic-find-labels` = "false"
+    )
+    
+    # <table:table table:name="Tabelle1" table:style-name="ta1">
+    tbl <- xml_add_child(ss, "table:table",
+                         `table:name` = ifelse(is.na(sheet$sheetName),"Tabellle1",sheet$sheetName),
+                         `table:style-name` = "ta1"
+    )
+    
+    # Define all columns (very inefficient for now)
+    for (col in seq_along(AA_colStyle)){
+      xml_add_child(tbl, "table:table-column",
+                    `table:style-name` = AA_colStyle[col],
+                    `table:default-cell-style-name` = "ce1")
+    }
+    xml_add_child(tbl, "table:table-column",
+                  `table:style-name` = "co1",
+                  `table:number-columns-repeated` = 2^14-length(AA_colStyle),
+                  `table:default-cell-style-name` = "ce1")
+    
+    
+    # Here we fill every cell:
+    maxROW=max(AA_cellsContent[,row],
+               AA_specialCell[,"row"])
+    for (rowNr in 1:maxROW){ ## TODO: This is currently the only place, where I use "1:..."
+      row <- xml_add_child(tbl, "table:table-row",`table:style-name` = AA_rowStyle[rowNr])
+      
+      # 20.05.2026
+      #if (!any(AA_cellsAddress[,"row"]==rowNr)){
+      #  ## warning("This skips lines, with empty combined cells. i dont know if this is intended") -> Actually, this is not intended!
+      #  xml_add_child(row, "table:table-cell",`table:number-columns-repeated` = "16384",`table:style-name` = "ce1") ## sooo empty rows need a style for some reason???
+      #  next
+      #}
+      maxCOL=max(1,
+                 AA_cellsContent[row==rowNr,column],
+                 (AA_specialCell [,"row"]==rowNr)*AA_specialCell [,"column"],
+                 (AA_mergedCells [,"fromRow"]==rowNr)*AA_mergedCells [,"fromColumn"])
+      for (colNr in 1:maxCOL){ ## TODO: This is currently the second place, where I use "1:..."
+        id=which((AA_specialCell[,"row"]==rowNr)&(AA_specialCell[,"column"]==colNr))
+        if (length(id)!=0){
+          type=AA_specialCell[id,"type"]
+          if (type==1){ ## empty cell:
+            xml_add_child(row, "table:covered-table-cell",
+                          `table:number-columns-repeated` = "1")
+          }
+          next
+        }
+        
+        
+        cellContent=AA_cellsContent[row==rowNr & column==colNr]
+        if (nrow(cellContent)==0){ ## add empty cell
+          cell <- xml_add_child(row, "table:table-cell",
+                                 `table:style-name` = "ce1")
+          ## However, is this the start of merged cells?
+          id2=which((AA_mergedCells[,"fromRow"]==rowNr)&(AA_mergedCells[,"fromColumn"]==colNr))
+          
+          if (length(id2)!=0){
+            xml_set_attr(cell, "table:number-columns-spanned",AA_mergedCells[id2,"width"])
+            xml_set_attr(cell, "table:number-rows-spanned",AA_mergedCells[id2,"height"])
+          }
+          
+        } else {
+          cell <- xml_add_child(row, "table:table-cell",
+                                 `office:value-type` = "string",
+                                 `table:style-name` = cellContent[,styleName])
+          id2=which((AA_mergedCells[,"fromRow"]==rowNr)&(AA_mergedCells[,"fromColumn"]==colNr))
+          if (length(id2)!=0){
+            xml_set_attr(cell, "table:number-columns-spanned",AA_mergedCells[id2,"width"])
+            xml_set_attr(cell, "table:number-rows-spanned",AA_mergedCells[id2,"height"])
+          }
+          
+          p <- xml_add_child(cell, "text:p")
+          xml_set_text(p, cellContent[,text])
+        }
+      }
+      
+      # finish the row:
+      xml_add_child(row, "table:table-cell",`table:number-columns-repeated` = 16384-maxCOL)
+      
+    }
+    
+    
+    # Remaining rows as empty
+    row2 <- xml_add_child(tbl, "table:table-row",
+                          `table:number-rows-repeated` = 2^20-maxROW,
+                          `table:style-name` = "ro1"
+    )
+    xml_add_child(row2, "table:table-cell",
+                  `table:number-columns-repeated` = 2^14
+    )
+    
+    
+    
+    
+    
+    
+    
     
     
     
@@ -868,7 +863,8 @@ ODS_write <- function(sheet, file="defaultName.ods"){
     
     
     LOCAL_CONTENT=doc
-    if (d){cat(as.character(LOCAL_CONTENT, options = "format"))}
+    ## DEBUG:
+    if (FALSE){cat(as.character(LOCAL_CONTENT, options = "format"))}
   }
   
   
