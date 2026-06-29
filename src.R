@@ -209,6 +209,32 @@ SHEET <- R6Class("ODSsheet",
                      cat(bold("rowHeights:  "),self$rowHeights,"\n")
                      cat(bold("styles:"),"\n")
                      print(self$styles)
+                   },
+                   
+                   
+                   nrow = function(...){
+                     return(max(0,sheet$cellsContent$row))
+                   },
+                   
+                   ncol = function(...){
+                     return(max(0,sheet$cellsContent$column))
+                   },
+                   
+                   
+                   View = function(...){
+                     self$cleanup()
+                     sheet = matrix(NA_character_,nrow=self$nrow(),ncol=self$ncol())
+                     sheet[cbind(self$cellsContent$row,self$cellsContent$column)]=self$cellsContent$text
+                     sheet=data.table(sheet)
+                     NAMES=LETTERS
+                     while(self$ncol()>length(NAMES)){
+                       NAMES=as.vector(outer(c("",LETTERS),NAMES,paste0))
+                       NAMES=unique(NAMES)
+                       NAMES=NAMES[order(nchar(NAMES),NAMES)]
+                     }
+                     colnames(sheet)=NAMES[1:ncol(sheet)]
+                     View(sheet)
+                     return(invisible(sheet))
                    }
                  )
 )
@@ -221,7 +247,6 @@ ODS_createSheet = function(sheetName=NULL){
   return(SHEET)
 }
 
-## TODO: implement ncol(sheet) and nrow(sheet)
 
 #~~~~~~~~~~~~~~~~~~~
 ## 3. Functions ####
