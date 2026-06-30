@@ -806,9 +806,9 @@ ODS_write <- function(sheet, file="defaultName.ods"){
     
     
     # Here we fill every cell:
-    maxROW=max(AA_cellsContent[,row],
+    maxROW=max(0,AA_cellsContent[,row],
                AA_specialCell[,"row"])
-    for (rowNr in 1:maxROW){ ## TODO: This is currently the only place, where I use "1:..."
+    for (rowNr in seq_len(maxROW)){
       row <- xml_add_child(tbl, "table:table-row",`table:style-name` = AA_rowStyle[rowNr])
       
       # 20.05.2026
@@ -817,11 +817,10 @@ ODS_write <- function(sheet, file="defaultName.ods"){
       #  xml_add_child(row, "table:table-cell",`table:number-columns-repeated` = "16384",`table:style-name` = "ce1") ## sooo empty rows need a style for some reason???
       #  next
       #}
-      maxCOL=max(1,
-                 AA_cellsContent[row==rowNr,column],
+      maxCOL=max(0,AA_cellsContent[row==rowNr,column],
                  (AA_specialCell [,"row"]==rowNr)*AA_specialCell [,"column"],
                  (AA_mergedCells [,"fromRow"]==rowNr)*AA_mergedCells [,"fromColumn"])
-      for (colNr in 1:maxCOL){ ## TODO: This is currently the second place, where I use "1:..."
+      for (colNr in seq_len(maxCOL)){
         id=which((AA_specialCell[,"row"]==rowNr)&(AA_specialCell[,"column"]==colNr))
         if (length(id)!=0){
           type=AA_specialCell[id,"type"]
