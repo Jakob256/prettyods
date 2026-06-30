@@ -402,23 +402,37 @@ ODS_write <- function(sheet, file="defaultName.ods"){
   AA_rowStyle <- unname(lookup[rowHeights])
   
   
-  # 0.4 merged Cells  ####
+  # 0.4 special Cells  ####
   
-  AA_specialCell=matrix(nrow=0, ncol=6, dimnames=list(NULL, c("row", "column","type","attribute","nextRow","nextCol")))
-  ## type 1: empty cells, that lie "behind" merged cells
-  ## probably those "COVERED CELLS"
-  ## type 2: not used yet
-  AA_mergedCells=sheet$mergedCells
-  AA_mergedCells=cbind(AA_mergedCells,
-                       height=AA_mergedCells[,"toRow"]-AA_mergedCells[,"fromRow"]+1,
-                       width=AA_mergedCells[,"toColumn"]-AA_mergedCells[,"fromColumn"]+1)
-  for (i in seq_len(nrow(AA_mergedCells))){
-    r=AA_mergedCells[i,"fromRow"]:AA_mergedCells[i,"toRow"]
-    c=AA_mergedCells[i,"fromColumn"]:AA_mergedCells[i,"toColumn"]
-    for (j in r){
+  AA_specialCells= data.table(
+    row = integer(),
+    column = integer(),
+    type = character(), ## currently "mergeStart" or "covered"
+    par1 = integer(),
+    par2 = integer()
+  )
+  
+  ## 0.4.1: merged Cells ####
+  
+  mc=data.table(copy(sheet$mergedCells))
+  mc[,row:=fromRow]
+  mc[,column:=fromColumn]
+  mc[,type:="mergeStart"]
+  mc[,par1:=toRow-fromRow+1]       ## height
+  mc[,par2:=toColumn-fromColumn+1] ## width
+  mc[, c("fromRow", "toRow", "fromColumn", "toColumn") := NULL]
+  AA_specialCells=rbind(AA_specialCells,mc,fill=T)
+  
+  ## 0.4.2: covered Cells ####
+  
+  mc=sheet$mergedCells
+  for (i in seq_len(nrow(mc))){
+    r=mc[i,"fromRow"]:mc[i,"toRow"]
+    c=mc[i,"fromColumn"]:mc[i,"toColumn"]
+    for (j in r){ ## TODO: vectorize
       for (k in c){
         if (j==min(r) & k==min(c)){next}
-        AA_specialCell=rbind(AA_specialCell,c(j,k,1,NA,NA,NA))
+        AA_specialCells=rbind(AA_specialCells,list(j,k,"covered"),fill=TRUE)
       }
     }
   }
@@ -426,8 +440,7 @@ ODS_write <- function(sheet, file="defaultName.ods"){
   
   if (FALSE){## debug
     AA_cellsContent<<-AA_cellsContent
-    AA_mergedCells<<-AA_mergedCells
-    AA_specialCell<<-AA_specialCell
+    AA_specialCells<<-AA_specialCells
   }
   
   
@@ -806,57 +819,45 @@ ODS_write <- function(sheet, file="defaultName.ods"){
     
     
     # Here we fill every cell:
-    maxROW=max(0,AA_cellsContent[,row],
-               AA_specialCell[,"row"])
+    maxROW=max(AA_cellsContent[,row],0,
+               AA_specialCells[,row])
     for (rowNr in seq_len(maxROW)){
       row <- xml_add_child(tbl, "table:table-row",`table:style-name` = AA_rowStyle[rowNr])
       
-      # 20.05.2026
-      #if (!any(AA_cellsAddress[,"row"]==rowNr)){
-      #  ## warning("This skips lines, with empty combined cells. i dont know if this is intended") -> Actually, this is not intended!
-      #  xml_add_child(row, "table:table-cell",`table:number-columns-repeated` = "16384",`table:style-name` = "ce1") ## sooo empty rows need a style for some reason???
-      #  next
-      #}
-      maxCOL=max(0,AA_cellsContent[row==rowNr,column],
-                 (AA_specialCell [,"row"]==rowNr)*AA_specialCell [,"column"],
-                 (AA_mergedCells [,"fromRow"]==rowNr)*AA_mergedCells [,"fromColumn"])
+      maxCOL=max(AA_cellsContent[row==rowNr,column],0,
+                 AA_specialCells[row==rowNr,column])
       for (colNr in seq_len(maxCOL)){
-        id=which((AA_specialCell[,"row"]==rowNr)&(AA_specialCell[,"column"]==colNr))
-        if (length(id)!=0){
-          type=AA_specialCell[id,"type"]
-          if (type==1){ ## empty cell:
+        special    =AA_specialCells[row==rowNr & column==colNr,]
+        cellContent=AA_cellsContent[row==rowNr & column==colNr,]
+        
+        if (nrow(special)==1){
+          if (special$type=="covered"){ ## covered cell:
             xml_add_child(row, "table:covered-table-cell",
                           `table:number-columns-repeated` = "1")
+            next
           }
-          next
         }
         
         
-        cellContent=AA_cellsContent[row==rowNr & column==colNr]
         if (nrow(cellContent)==0){ ## add empty cell
           cell <- xml_add_child(row, "table:table-cell",
                                  `table:style-name` = "ce1")
-          ## However, is this the start of merged cells?
-          id2=which((AA_mergedCells[,"fromRow"]==rowNr)&(AA_mergedCells[,"fromColumn"]==colNr))
-          
-          if (length(id2)!=0){
-            xml_set_attr(cell, "table:number-columns-spanned",AA_mergedCells[id2,"width"])
-            xml_set_attr(cell, "table:number-rows-spanned",AA_mergedCells[id2,"height"])
-          }
-          
         } else {
           cell <- xml_add_child(row, "table:table-cell",
                                  `office:value-type` = "string",
                                  `table:style-name` = cellContent[,styleName])
-          id2=which((AA_mergedCells[,"fromRow"]==rowNr)&(AA_mergedCells[,"fromColumn"]==colNr))
-          if (length(id2)!=0){
-            xml_set_attr(cell, "table:number-columns-spanned",AA_mergedCells[id2,"width"])
-            xml_set_attr(cell, "table:number-rows-spanned",AA_mergedCells[id2,"height"])
-          }
           
           p <- xml_add_child(cell, "text:p")
           xml_set_text(p, cellContent[,text])
         }
+        
+        if (nrow(special)==1){
+          if (special$type=="mergeStart"){
+            xml_set_attr(cell, "table:number-rows-spanned"   ,special[,par1])
+            xml_set_attr(cell, "table:number-columns-spanned",special[,par2])
+          }
+        }
+        
       }
       
       # finish the row:
