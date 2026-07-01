@@ -33,6 +33,7 @@ setClass(
     cellcolor="character",
     vAlign="character",
     hAlign="character", 
+    margin="numeric",
     wrap="logical", 
     rotate="integer",
     .color="character",
@@ -50,6 +51,7 @@ setClass(
     cellcolor=NA_character_,
     vAlign=NA_character_,
     hAlign=NA_character_, 
+    margin=NA_real_,
     wrap=NA, 
     rotate=NA_integer_,
     .color=NA_character_,
@@ -89,12 +91,13 @@ setMethod(
 
 ODS_createStyle <- function(font=NULL, size=NULL, color=NULL, bold=NULL, italic=NULL, 
                             underline=NULL, cellcolor=NULL, vAlign=NULL, hAlign=NULL, 
-                            wrap=NULL, rotate=NULL){
+                            margin=NULL, wrap=NULL, rotate=NULL){
   
   g <- function(a,type){
     if (is.na(a)||is.null(a)){
       if (type=="character"){return(NA_character_)}
       if (type=="integer"){return(NA_integer_)}
+      if (type=="numeric"){return(NA_real_)}
       if (type=="logical"){return(NA)}
     }
     if (type=="integer"){return(as.integer(a))}
@@ -110,6 +113,7 @@ ODS_createStyle <- function(font=NULL, size=NULL, color=NULL, bold=NULL, italic=
   cellcolor  =g(cellcolor,"character")
   vAlign     =g(vAlign,"character")
   hAlign     =g(hAlign,"character")
+  margin     =g(margin,"numeric")
   wrap       =g(wrap,"logical")
   rotate     =g(rotate,"integer")
   
@@ -145,6 +149,7 @@ ODS_createStyle <- function(font=NULL, size=NULL, color=NULL, bold=NULL, italic=
       cellcolor=cellcolor,
       vAlign=vAlign,
       hAlign=hAlign, 
+      margin=margin,
       wrap=wrap, 
       rotate=rotate,
       .color=.color,
@@ -157,7 +162,6 @@ ODS_createStyle <- function(font=NULL, size=NULL, color=NULL, bold=NULL, italic=
 ### 2.2. ODSsheet ####
 #~~~~~~~~~~~~~~~~~~~~~
 
-## TODO: is "styleNumber" really necessary???
 SHEET <- R6Class("ODSsheet",
                  public = list(
                    sheetName=NA,
@@ -354,6 +358,7 @@ ODS_write <- function(sheet, file="defaultName.ods"){
              cellcolor="transparent",
              vAlign="bottom",
              hAlign="left",
+             margin=0,
              wrap=FALSE,
              rotate=0,
              .color="#000000",
@@ -375,7 +380,8 @@ ODS_write <- function(sheet, file="defaultName.ods"){
   for (attribute in colnames(AA_stylesTable)){
     AA_stylesTable[is.na(AA_stylesTable[,attribute]),attribute]=DEFAULTS[attribute]
   }
-  AA_stylesTable[,"size"]=paste0(AA_stylesTable[,"size"],"pt")
+  AA_stylesTable[,"size"  ]=paste0(AA_stylesTable[,"size"  ],"pt")
+  AA_stylesTable[,"margin"]=paste0(AA_stylesTable[,"margin"],"cm")
   
   
   # 0.2 cells information ####
@@ -740,11 +746,11 @@ ODS_write <- function(sheet, file="defaultName.ods"){
       if (AA_stylesTable[i,"hAlign"]=="left"){
         node <-xml_add_child(xxx, "style:paragraph-properties",
                              `fo:text-align` = "start",
-                             `fo:margin-left` = "0cm")}
+                             `fo:margin-left`= AA_stylesTable[i,"margin"])}
       if (AA_stylesTable[i,"hAlign"]=="right"){
         node <-xml_add_child(xxx, "style:paragraph-properties",
-                             `fo:text-align` = "end",
-                             `fo:margin-right` = "0cm")}
+                             `fo:text-align`  ="end",
+                             `fo:margin-right`=AA_stylesTable[i,"margin"])}
       
       
       node <-xml_add_child(xxx, "style:text-properties",
@@ -922,8 +928,13 @@ ODS_write <- function(sheet, file="defaultName.ods"){
 }
 
 
-#~~~~~~~~~~~
-## Bugs ####
-#~~~~~~~~~~~
+#~~~~~~~~~~~~~~~~~
+## Bugs/Todos ####
+#~~~~~~~~~~~~~~~~~
 
 # rotate does not rotate more than 90 degrees
+# multiple sheets
+# first number format
+# complete number formats
+# vectorize input
+
