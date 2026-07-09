@@ -36,6 +36,8 @@ setClass(
     margin="numeric",
     wrap="logical", 
     rotate="integer",
+    minDigits="integer",
+    maxDigits="integer",
     .color="character",
     .cellcolor="character",
     .key="character"
@@ -54,6 +56,8 @@ setClass(
     margin=NA_real_,
     wrap=NA, 
     rotate=NA_integer_,
+    minDigits=NA_integer_,
+    maxDigits=NA_integer_,
     .color=NA_character_,
     .cellcolor=NA_character_,
     .key=NA_character_
@@ -91,7 +95,8 @@ setMethod(
 
 ODS_createStyle <- function(font=NULL, size=NULL, color=NULL, bold=NULL, italic=NULL, 
                             underline=NULL, cellcolor=NULL, vAlign=NULL, hAlign=NULL, 
-                            margin=NULL, wrap=NULL, rotate=NULL){
+                            margin=NULL, wrap=NULL, rotate=NULL, minDigits=NULL, 
+                            maxDigits=NULL){
   
   g <- function(a,type){
     if (is.na(a)||is.null(a)){
@@ -116,6 +121,8 @@ ODS_createStyle <- function(font=NULL, size=NULL, color=NULL, bold=NULL, italic=
   margin     =g(margin,"numeric")
   wrap       =g(wrap,"logical")
   rotate     =g(rotate,"integer")
+  minDigits  =g(minDigits,"integer")
+  maxDigits  =g(maxDigits,"integer")
   
   ## computing internal variables
   
@@ -152,6 +159,8 @@ ODS_createStyle <- function(font=NULL, size=NULL, color=NULL, bold=NULL, italic=
       margin=margin,
       wrap=wrap, 
       rotate=rotate,
+      minDigits=minDigits,
+      maxDigits=maxDigits,
       .color=.color,
       .cellcolor=.cellcolor,
       .key=.key)
@@ -168,7 +177,9 @@ SHEET <- R6Class("ODSsheet",
                    cellsContent = data.table(
                      row = integer(),
                      column = integer(),
-                     text = character(),
+                     type = character(),
+                     data_string = character(),
+                     data_float = numeric(),
                      styleNumber = integer()
                    ),
                    mergedCells = matrix(
@@ -227,8 +238,11 @@ SHEET <- R6Class("ODSsheet",
                    
                    View = function(...){
                      self$cleanup()
+                     ## this needs to be adapted to the number-type
                      sheet = matrix(NA_character_,nrow=self$nrow(),ncol=self$ncol())
-                     sheet[cbind(self$cellsContent$row,self$cellsContent$column)]=self$cellsContent$text
+                     text=self$cellsContent$data_string
+                     text[is.na(text)]=self$cellsContent$data_float[is.na(text)]
+                     sheet[cbind(self$cellsContent$row,self$cellsContent$column)]=text
                      sheet=data.table(sheet)
                      NAMES=LETTERS
                      while(self$ncol()>length(NAMES)){
@@ -256,7 +270,7 @@ ODS_createSheet = function(sheetName=NULL){
 ## 3. Functions ####
 #~~~~~~~~~~~~~~~~~~~
 
-ODS_writeCell <- function(sheet, text, row, col,  style){
+ODS_writeCell <- function(sheet, data, row, col,  style){
   if (missing(style)){style=ODS_createStyle()}
   if (class(style)!="ODSstyle"){stop("'style' must be a style!")}
   
@@ -270,7 +284,11 @@ ODS_writeCell <- function(sheet, text, row, col,  style){
     styleNumber=length(sheet$styles)
   }
   
-  sheet$cellsContent <- rbind(sheet$cellsContent, list(row,col,text,styleNumber))
+  if (class(data)=="numeric"){
+    sheet$cellsContent <- rbind(sheet$cellsContent, list(row,col,"float",NA,data,styleNumber))
+  } else {
+    sheet$cellsContent <- rbind(sheet$cellsContent, list(row,col,"string",as.character(data),NA,styleNumber))
+  }
   
   invisible(sheet)
 }
@@ -344,7 +362,7 @@ ODS_setRowHeights <- function(sheet,rows,height){
 #~~~~~~~~~~~~~~~~~
 
 
-ODS_write <- function(sheet, file="defaultName.ods"){
+ODS_write <- function(sheet, file="file.ods"){
   if (!"ODSsheet" %in% class(sheet)){stop("'sheet' must be an ODSsheet")}
   sheet$cleanup()
   DEFAULTS=c(colWidth="1.7cm",
@@ -361,6 +379,8 @@ ODS_write <- function(sheet, file="defaultName.ods"){
              margin=0,
              wrap=FALSE,
              rotate=0,
+             minDigits=0,
+             maxDigits=6,
              .color="#000000",
              .cellcolor="transparent")
   
@@ -382,7 +402,7 @@ ODS_write <- function(sheet, file="defaultName.ods"){
   }
   AA_stylesTable[,"size"  ]=paste0(AA_stylesTable[,"size"  ],"pt")
   AA_stylesTable[,"margin"]=paste0(AA_stylesTable[,"margin"],"cm")
-  
+  if (any(as.double(AA_stylesTable[,"minDigits"])>as.double(AA_stylesTable[,"maxDigits"]))){stop("We must have minDigits<=maxDigits")}
   
   # 0.2 cells information ####
   AA_cellsContent=copy(sheet$cellsContent)
@@ -447,6 +467,7 @@ ODS_write <- function(sheet, file="defaultName.ods"){
   if (FALSE){## debug
     AA_cellsContent<<-AA_cellsContent
     AA_specialCells<<-AA_specialCells
+    AA_stylesTable <<-AA_stylesTable
   }
   
   
@@ -510,7 +531,7 @@ ODS_write <- function(sheet, file="defaultName.ods"){
   }
   
   # 1.4 styles  ####
-  ## currently, it does not seem that we have to change anything in styles...
+  ## currently, we only define the number styles
   {
     doc <- xml_new_root(
       "office:document-styles",
@@ -534,7 +555,7 @@ ODS_write <- function(sheet, file="defaultName.ods"){
       ffd,
       "style:font-face",
       `style:name` = "Arial",
-      `svg:font-family` = "Calibri"
+      `svg:font-family` = "Arial"
     )
     
     
@@ -551,6 +572,23 @@ ODS_write <- function(sheet, file="defaultName.ods"){
       "number:number",
       `number:min-integer-digits` = "1"
     )
+    
+    ## for each style, add the number style:
+    for (i in seq_len(nrow(AA_stylesTable))){
+      ns <- xml_add_child(
+        styles,
+        "number:number-style",
+        `style:name` = paste0("N",i)
+      )
+      xml_add_child(
+        ns,
+        "number:number",
+        `number:min-decimal-places` = AA_stylesTable[i,"minDigits"],
+        `number:decimal-places` = AA_stylesTable[i,"maxDigits"],
+        `number:min-integer-digits` = "1"
+      )
+    }
+    
     
     # Default table-cell style
     default_style <- xml_add_child(
@@ -727,7 +765,7 @@ ODS_write <- function(sheet, file="defaultName.ods"){
                           `style:name` = AA_stylesTable[i,"styleName"],
                           `style:family` = "table-cell",
                           `style:parent-style-name` = "Default",
-                          `style:data-style-name` = "N0"
+                          `style:data-style-name` = paste0("N",i)
       )
       
       ## this node is not always necessary... lets see if i can just include it always...
@@ -850,11 +888,19 @@ ODS_write <- function(sheet, file="defaultName.ods"){
                                  `table:style-name` = "ce1")
         } else {
           cell <- xml_add_child(row, "table:table-cell",
-                                 `office:value-type` = "string",
+                                 `office:value-type`= cellContent[,type],
                                  `table:style-name` = cellContent[,styleName])
+          if (cellContent[,type]=="float"){
+            xml_set_attr(cell, "office:value", as.character(cellContent[,data_float]))
+            p <- xml_add_child(cell, "text:p")
+            xml_set_text(p, as.character(cellContent[,data_float]))
+          }
+          if (cellContent[,type]=="string"){
+            p <- xml_add_child(cell, "text:p")
+            xml_set_text(p, cellContent[,data_string])
+          }
           
-          p <- xml_add_child(cell, "text:p")
-          xml_set_text(p, cellContent[,text])
+          
         }
         
         if (nrow(special)==1){
@@ -895,7 +941,8 @@ ODS_write <- function(sheet, file="defaultName.ods"){
     
     LOCAL_CONTENT=doc
     ## DEBUG:
-    if (FALSE){cat(as.character(LOCAL_CONTENT, options = "format"))}
+    if (FALSE){cat("\n\n\n",as.character(LOCAL_STYLES, options = "format"))}
+    if (FALSE){cat("\n\n\n",as.character(LOCAL_CONTENT, options = "format"))}
   }
   
   
@@ -937,4 +984,12 @@ ODS_write <- function(sheet, file="defaultName.ods"){
 # first number format
 # complete number formats
 # vectorize input
+# row and column names are "NA", but somehow don't crash
+# change from "matrix" to "data.table", for instance AA_stylesTable
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~
+## Maybe look into ... ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# even "text only" styles have a digits attribute... 
 
