@@ -266,6 +266,11 @@ ODS_createSheet = function(sheetName=NULL){
 }
 
 
+dim.ODSsheet <- function(sheet){c(sheet$nrow(),sheet$ncol())}
+
+preview <- function(sheet){return(invisible(sheet$View()))}
+
+
 #~~~~~~~~~~~~~~~~~~~
 ## 3. Functions ####
 #~~~~~~~~~~~~~~~~~~~
@@ -455,12 +460,14 @@ ODS_write <- function(sheet, file="file.ods"){
   for (i in seq_len(nrow(mc))){
     r=mc[i,"fromRow"]:mc[i,"toRow"]
     c=mc[i,"fromColumn"]:mc[i,"toColumn"]
-    for (j in r){ ## TODO: vectorize
-      for (k in c){
-        if (j==min(r) & k==min(c)){next}
-        AA_specialCells=rbind(AA_specialCells,list(j,k,"covered"),fill=TRUE)
-      }
-    }
+    
+    tmp=data.table(
+      row=rep(r,each=length(c)),
+      column=rep(c,times=length(r)),
+      type="covered"
+    )
+    tmp=tmp[-1,]
+    AA_specialCells=rbind(AA_specialCells,tmp,fill=TRUE)
   }
   
   
@@ -981,7 +988,6 @@ ODS_write <- function(sheet, file="file.ods"){
 
 # rotate does not rotate more than 90 degrees
 # multiple sheets
-# first number format
 # complete number formats
 # vectorize input
 # row and column names are "NA", but somehow don't crash
