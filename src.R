@@ -345,7 +345,8 @@ ODS_mergeCells <- function(sheet, rows, cols, mergeCols=TRUE, mergeRows=TRUE){
 }
 
 
-ODS_setColWidths <- function(sheet,cols,width){
+ODS_setColWidths <- function(sheet,cols,width="1.7cm"){
+  if (is.numeric(width)){heigt=paste0(width,"cm")}
   m=max(cols)
   c=length(sheet$colWidths)
   if (c<m){sheet$colWidths=c(sheet$colWidths,rep(NA,m-c))}
@@ -354,7 +355,8 @@ ODS_setColWidths <- function(sheet,cols,width){
 
 
 
-ODS_setRowHeights <- function(sheet,rows,height){
+ODS_setRowHeights <- function(sheet,rows,height="15pt"){
+  if (is.numeric(height)){height=paste0(height,"pt")}
   m=max(rows)
   c=length(sheet$rowHeights)
   if (c<m){sheet$rowHeights=c(sheet$rowHeights,rep(NA,m-c))}
@@ -416,18 +418,18 @@ ODS_write <- function(sheet, file="file.ods"){
   # 0.3 col/row styles ####
   
   ## defining row and column styles
-  colWidths=sheet$colWidths
+  colWidths=c(sheet$colWidths,DEFAULTS["colWidth"]) #not elegant, but works well
   colWidths[is.na(colWidths)]=DEFAULTS["colWidth"]
   AA_colStylesDef=matrix(nrow=length(unique(colWidths)),ncol=2,dimnames=list(NULL, c("colStyleName", "width")))
-  AA_colStylesDef[,"colStyleName"]=paste0("colStyle",seq_len(nrow(AA_colStylesDef)))
+  AA_colStylesDef[,"colStyleName"]=paste0("co",seq_len(nrow(AA_colStylesDef)))
   AA_colStylesDef[,"width"]=unique(colWidths)
   lookup <- setNames(AA_colStylesDef[, "colStyleName"], AA_colStylesDef[, "width"])
   AA_colStyle <- unname(lookup[colWidths])
   
-  rowHeights=sheet$rowHeights
+  rowHeights=c(sheet$rowHeights,DEFAULTS["rowHeight"]) #not elegant, but works well
   rowHeights[is.na(rowHeights)]=DEFAULTS["rowHeight"]
   AA_rowStylesDef=matrix(nrow=length(unique(rowHeights)),ncol=2,dimnames=list(NULL, c("rowStyleName", "height")))
-  AA_rowStylesDef[,"rowStyleName"]=paste0("rowStyle",seq_len(nrow(AA_rowStylesDef)))
+  AA_rowStylesDef[,"rowStyleName"]=paste0("ro",seq_len(nrow(AA_rowStylesDef)))
   AA_rowStylesDef[,"height"]=unique(rowHeights)
   lookup <- setNames(AA_rowStylesDef[, "rowStyleName"], AA_rowStylesDef[, "height"])
   AA_rowStyle <- unname(lookup[rowHeights])
@@ -475,6 +477,8 @@ ODS_write <- function(sheet, file="file.ods"){
     AA_cellsContent<<-AA_cellsContent
     AA_specialCells<<-AA_specialCells
     AA_stylesTable <<-AA_stylesTable
+    AA_rowStyle<<-AA_rowStyle
+    AA_colStyle<<-AA_colStyle
   }
   
   
@@ -721,15 +725,14 @@ ODS_write <- function(sheet, file="file.ods"){
     )
     
     
-    # co1 (table-column) + its properties
-    co1 <- xml_add_child(as, "style:style",
-                         `style:name` = "co1",
+    # COLUMN STYLES ARE DEFINED:
+    co0 <- xml_add_child(as, "style:style",
+                         `style:name` = "co0",
                          `style:family` = "table-column")
-    xml_add_child(co1, "style:table-column-properties",
+    xml_add_child(co0, "style:table-column-properties",
                   `fo:break-before` = "auto",
                   `style:column-width` = DEFAULTS["colWidth"])
     
-    ## HERE WE WILL DEFINE THE OTHER COLUMN STYLES
     for (i in seq_len(nrow(AA_colStylesDef))){
       col <- xml_add_child(as, "style:style",
                            `style:name` = AA_colStylesDef[i,"colStyleName"],
@@ -741,18 +744,17 @@ ODS_write <- function(sheet, file="file.ods"){
     
     
     
-    
-    # ro1 (table-row) + its properties
-    ro1 <- xml_add_child(as, "style:style",
-                         `style:name` = "ro1",
+    # ROW STYLES ARE DEFINED:
+    ro0 <- xml_add_child(as, "style:style",
+                         `style:name` = "ro0",
                          `style:family` = "table-row"
     )
-    xml_add_child(ro1, "style:table-row-properties",
+    xml_add_child(ro0, "style:table-row-properties",
+                  `fo:break-before` = "auto",
                   `style:row-height` = DEFAULTS["rowHeight"],
-                  `style:use-optimal-row-height` = "true",
-                  `fo:break-before` = "auto"
+                  `style:use-optimal-row-height` = "true"
     )
-    ## HERE WE WILL DEFINE THE OTHER ROW STYLES
+    
     for (i in seq_len(nrow(AA_rowStylesDef))){
       row <- xml_add_child(as, "style:style",
                            `style:name` = AA_rowStylesDef[i,"rowStyleName"],
@@ -864,19 +866,19 @@ ODS_write <- function(sheet, file="file.ods"){
                     `table:default-cell-style-name` = "ce1")
     }
     xml_add_child(tbl, "table:table-column",
-                  `table:style-name` = "co1",
+                  `table:style-name` = "co0",
                   `table:number-columns-repeated` = 2^14-length(AA_colStyle),
                   `table:default-cell-style-name` = "ce1")
     
     
     # Here we fill every cell:
-    maxROW=max(AA_cellsContent[,row],0,
-               AA_specialCells[,row])
+    maxROW=max(AA_specialCells[,row],AA_cellsContent[,row],length(AA_rowStyle),0)
+    
     for (rowNr in seq_len(maxROW)){
       row <- xml_add_child(tbl, "table:table-row",`table:style-name` = AA_rowStyle[rowNr])
       
-      maxCOL=max(AA_cellsContent[row==rowNr,column],0,
-                 AA_specialCells[row==rowNr,column])
+      maxCOL=max(AA_specialCells[row==rowNr,column],AA_cellsContent[row==rowNr,column],0)
+      
       for (colNr in seq_len(maxCOL)){
         special    =AA_specialCells[row==rowNr & column==colNr,]
         cellContent=AA_cellsContent[row==rowNr & column==colNr,]
@@ -928,7 +930,7 @@ ODS_write <- function(sheet, file="file.ods"){
     # Remaining rows as empty
     row2 <- xml_add_child(tbl, "table:table-row",
                           `table:number-rows-repeated` = 2^20-maxROW,
-                          `table:style-name` = "ro1"
+                          `table:style-name` = "ro0"
     )
     xml_add_child(row2, "table:table-cell",
                   `table:number-columns-repeated` = 2^14
@@ -990,7 +992,6 @@ ODS_write <- function(sheet, file="file.ods"){
 # multiple sheets
 # complete number formats
 # vectorize input
-# row and column names are "NA", but somehow don't crash
 # change from "matrix" to "data.table", for instance AA_stylesTable
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~
