@@ -279,7 +279,20 @@ ODS_writeCell <- function(sheet, data, row, col,  style){
   if (missing(style)){style=ODS_createStyle()}
   if (class(style)!="ODSstyle"){stop("'style' must be a style!")}
   
-  ## Q1: does this style already exist?
+  .ODS_writeArray(sheet,data,row,col,style,skipNA = FALSE)  
+  invisible(sheet)
+}
+
+
+
+.ODS_writeArray <- function(sheet, array, startRow, startCol, style, skipNA=FALSE){
+  ## This is an internal function, hence, there will be no error checking.
+  ## The array (all of the same type and style), will be added to the sheet.
+  ## This is meant to be the single function, that dumps data into the sheet.
+  
+  if (!is.matrix(array)){array=matrix(array)}
+  
+  ## Does this style already exist?
   keys <- vapply(sheet$styles, function(st) slot(st, ".key"), character(1))
   
   if (any(keys==style@.key)){ ## style already exists:
@@ -289,13 +302,24 @@ ODS_writeCell <- function(sheet, data, row, col,  style){
     styleNumber=length(sheet$styles)
   }
   
-  if (class(data)=="numeric"){
-    sheet$cellsContent <- rbind(sheet$cellsContent, list(row,col,"float",NA,data,styleNumber))
+  
+  ## Dumping the data
+  unwind=c(array)
+  row=c(row(array))+startRow-1
+  col=c(col(array))+startCol-1
+  
+  
+  if (typeof(array)%in%c("integer","double","numeric")){
+    df=data.table(row=row,column=col,type="float",data_string=NA,data_float=unwind,styleNumber=styleNumber)
   } else {
-    sheet$cellsContent <- rbind(sheet$cellsContent, list(row,col,"string",as.character(data),NA,styleNumber))
+    unwind=as.character(unwind)
+    df=data.table(row=row,column=col,type="string",data_string=unwind,data_float=NA,styleNumber=styleNumber)
   }
   
-  invisible(sheet)
+  if (skipNA){df=df[!is.na(unwind),]}
+  
+  sheet$cellsContent <- rbind(sheet$cellsContent, df)
+  #invisible(sheet)
 }
 
 
@@ -993,6 +1017,7 @@ ODS_write <- function(sheet, file="file.ods"){
 # complete number formats
 # vectorize input
 # change from "matrix" to "data.table", for instance AA_stylesTable
+# ODS_writeCell(sheet,1L,1,1) is not displayed correctly
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~
 ## Maybe look into ... ####
