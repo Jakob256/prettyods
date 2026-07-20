@@ -275,7 +275,7 @@ preview <- function(sheet){return(invisible(sheet$View()))}
 ## 3. Functions ####
 #~~~~~~~~~~~~~~~~~~~
 
-ODS_writeCell <- function(sheet, data, row, col,  style){
+ODS_writeCell <- function(sheet, data, row, col, style){
   if (missing(style)){style=ODS_createStyle()}
   if (class(style)!="ODSstyle"){stop("'style' must be a style!")}
   
@@ -283,6 +283,24 @@ ODS_writeCell <- function(sheet, data, row, col,  style){
   invisible(sheet)
 }
 
+
+ODS_writeData <- function(sheet, data, startRow, startCol, style, useColnames=TRUE, styleColnames){
+  if (missing(style        )){style        =ODS_createStyle()}
+  if (missing(styleColnames)){styleColnames=ODS_createStyle()}
+  
+  if ("data.frame" %in% class(data)){
+    if (useColnames){
+      colNames=colnames(data)
+      .ODS_writeArray(sheet,matrix(colNames,ncol=length(data)),startRow,startCol,styleColnames)
+    }
+    for (i in seq_len(ncol(data))){
+      column=matrix(data[[i]],ncol=1)
+      .ODS_writeArray(sheet,column,startRow+useColnames,startCol+i-1,style)
+    }
+    return(invisible(sheet))
+  }
+  stop("Not yet supported")
+}
 
 
 .ODS_writeArray <- function(sheet, array, startRow, startCol, style, skipNA=FALSE){
@@ -1018,6 +1036,7 @@ ODS_write <- function(sheet, file="file.ods"){
 # vectorize input
 # change from "matrix" to "data.table", for instance AA_stylesTable
 # ODS_writeCell(sheet,1L,1,1) is not displayed correctly
+# include NA/NaN/Inf handling in the style
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~
 ## Maybe look into ... ####
